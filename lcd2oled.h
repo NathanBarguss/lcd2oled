@@ -57,6 +57,9 @@ class lcd2oled : public Print
      */
     void SetBrightness(uint8_t nBrightness);
 
+    /**	@brief	Override the I2C address used when talking to the OLED controller */
+    void SetAddress(uint8_t nAddress);
+
     /**	@brief	Rotates display through 180 degrees
      *	@param	nRotate Rotation degree (OLED_ROTATE_0 | OLED_ROTATE_90 | OLED_ROTATE_180 | OLED_ROTATE_270)
      *	@note	Only OLED_ROTATE_0 and OLED_ROTATE_180 are currently implemented
@@ -211,6 +214,7 @@ class lcd2oled : public Print
 
     unsigned long m_lBlinkTime; // Time to toggle character cursor flashing - 0 to disable
     uint8_t m_nResetPin; 	// Index of pin connected to OLED reset - 0xFF if not used
+    uint8_t m_nI2CAddress; // I2C address for the OLED controller
     uint8_t m_nColumns;		// Quantity of columns in display
     uint8_t m_nRows;		// Quantity of rows in display
     uint8_t m_nCursor;		// 0x80 if cursor enabled else 0x00

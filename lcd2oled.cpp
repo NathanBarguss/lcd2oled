@@ -9,6 +9,7 @@
 lcd2oled::lcd2oled(uint8_t ResetPin) :
 		m_lBlinkTime(0),
         m_nResetPin(ResetPin),
+        m_nI2CAddress(OLED_I2C_ADDRESS),
         m_nCursor(0),
         m_nRotation(OLED_ROTATE_0),
         m_bLeftToRight(true),
@@ -41,7 +42,9 @@ void lcd2oled::Reset()
 void lcd2oled::clear()
 {
   noDisplay(); //Turn display off to hide slow scan clear
-  for(unsigned int i = 0; i < 1024; ++i) //Datasheet states GDDRAM is 128 x 64 bits = 1024 bytes
+  uint8_t pageCount = m_nRows ? m_nRows : 8;
+  uint16_t bytes = static_cast<uint16_t>(pageCount) * 128; //128 bytes per page
+  for(uint16_t i = 0; i < bytes; ++i)
     SendData(0);
   memset(m_pBuffer, OLED_CHAR_SPACE, m_nColumns * m_nRows); //fill buffer with spaces ' '
   display();
@@ -70,17 +73,29 @@ void lcd2oled::SetBrightness(uint8_t nBrightness)
   SendCommand(OLED_CMD_CONTRAST, nBrightness);
 }
 
+void lcd2oled::SetAddress(uint8_t nAddress)
+{
+  m_nI2CAddress = nAddress;
+}
+
 void lcd2oled::begin(uint8_t nColumns, uint8_t nRows, uint8_t nCharSize, bool bChargePump)
 {
   if(!m_pBuffer)
     m_pBuffer = new uint8_t[nColumns * nRows];
   m_nColumns = nColumns;
   m_nRows = nRows;
+  uint8_t pageCount = m_nRows ? m_nRows : 8;
+  if(pageCount > 8)
+    pageCount = 8;
+  uint8_t lastPage = pageCount - 1;
+  uint16_t pixelRows = static_cast<uint16_t>(pageCount) * 8;
+  if(pixelRows > 64)
+    pixelRows = 64;
   //turn display off whilst we configure it
   noDisplay();
   //Configure pages (rows) 0 - 7)
   SendCommand(OLED_CMD_PAGE_ADDRESS, 0x00);
-  SendCommand(0x07);
+  SendCommand(lastPage);
   SendCommand(OLED_CMD_COLUMN_RANGE, 0x00);
   SendCommand(0x7F);
   //Select horizontal mode (wrap at end of row)
@@ -91,8 +106,9 @@ void lcd2oled::begin(uint8_t nColumns, uint8_t nRows, uint8_t nCharSize, bool bC
   SendCommand(OLED_CMD_COLUMN_LOW | (OLED_LEFT_BORDER & 0x0F));
   SendCommand(OLED_CMD_COLUMN_HIGH | ((OLED_LEFT_BORDER >> 4) & 0x0F));
   //OLED physical configuration
-  SendCommand(OLED_CMD_MUX_RATIO, 0x3F);
-  SendCommand(OLED_CMD_PIN_CONFIG, OLED_PIN_ALT);
+  uint8_t muxRatio = pixelRows ? static_cast<uint8_t>(pixelRows - 1) : 0x3F;
+  SendCommand(OLED_CMD_MUX_RATIO, muxRatio);
+  SendCommand(OLED_CMD_PIN_CONFIG, (pixelRows < 64) ? OLED_PIN_SEQ : OLED_PIN_ALT);
   Rotate(false); //Assume LCD is installed right way up - user must rotate in code if installed upside down
   SendCommand(OLED_CMD_CLOCK_DIVIDE, 0xF0); //Fastest clock (default is 0x80) to improve scroll speed and accuracy
   SendCommand(OLED_CMD_PRECHARGE_PERIOD, 0xF1);
@@ -166,7 +182,7 @@ void lcd2oled::StopScrolling()
 
 void lcd2oled::SendCommand(uint8_t nCommand)
 {
-  Wire.beginTransmission(OLED_I2C_ADDRESS);
+  Wire.beginTransmission(m_nI2CAddress);
   Wire.write(OLED_CMD_MODE);
   Wire.write(nCommand);
   Wire.endTransmission();
@@ -174,7 +190,7 @@ void lcd2oled::SendCommand(uint8_t nCommand)
 
 void lcd2oled::SendCommand(uint8_t nCommand, uint8_t nData)
 {
-  Wire.beginTransmission(OLED_I2C_ADDRESS);
+  Wire.beginTransmission(m_nI2CAddress);
   Wire.write(OLED_CMD_MODE);
   Wire.write(nCommand);
   Wire.write(OLED_CMD_MODE);
@@ -184,7 +200,7 @@ void lcd2oled::SendCommand(uint8_t nCommand, uint8_t nData)
 
 void lcd2oled::SendData(uint8_t nData)
 {
-  Wire.beginTransmission(OLED_I2C_ADDRESS);
+  Wire.beginTransmission(m_nI2CAddress);
   Wire.write(OLED_DATA_MODE);
   Wire.write(nData);
   Wire.endTransmission();
