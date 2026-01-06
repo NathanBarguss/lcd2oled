@@ -6,6 +6,31 @@
 #include "lcd2oled.h"
 #include "charsets.h"
 
+// The instrumentation-heavy debug build leaves us ~200 bytes of free SRAM,
+// which isn't enough headroom for a late heap allocation plus allocator
+// bookkeeping. To keep the OLED buffer reliable even when verbose logging
+// is enabled, reserve a single static backing store sized to match the
+// actual panel geometry we ship today (20x4). If a different project needs
+// more columns/rows it can override these macros at build time. Using the
+// precise geometry keeps the RAM hit (~80 bytes) small enough that we stay
+// within the Nano168's limits even with all serial tracing enabled.
+#ifndef LCD2OLED_BUFFER_COLUMNS
+#define LCD2OLED_BUFFER_COLUMNS 20
+#endif
+#ifndef LCD2OLED_BUFFER_ROWS
+#define LCD2OLED_BUFFER_ROWS 4
+#endif
+static uint8_t s_oledTextBuffer[LCD2OLED_BUFFER_COLUMNS * LCD2OLED_BUFFER_ROWS] = {0};
+static bool s_oledBufferWarningEmitted = false;
+
+static int16_t lcd2oled_free_sram() {
+	extern char __heap_start;
+	extern char *__brkval;
+	char stack_top;
+	char *heap_end = __brkval ? __brkval : &__heap_start;
+	return static_cast<int16_t>(&stack_top - heap_end);
+}
+
 lcd2oled::lcd2oled(uint8_t ResetPin) :
 		m_lBlinkTime(0),
         m_nResetPin(ResetPin),
@@ -14,8 +39,8 @@ lcd2oled::lcd2oled(uint8_t ResetPin) :
         m_nRotation(OLED_ROTATE_0),
         m_bLeftToRight(true),
         m_bAutoscroll(false),
-        m_pBuffer(NULL),
-        m_hasBuffer(false)
+        m_pBuffer(s_oledTextBuffer),
+        m_hasBuffer(true)
 {
   if(m_nResetPin)
   {
@@ -41,28 +66,44 @@ void lcd2oled::Reset()
 }
 
 void lcd2oled::clear() {
+#if ENABLE_LCD2OLED_DEBUG
   Serial.println(F("lcd2oled: clear enter"));
+#endif
   noDisplay(); //Turn display off to hide slow scan clear
 
+#if ENABLE_LCD2OLED_DEBUG
   Serial.println(F("lcd2oled: clear senddata"));
+#endif
   
   uint8_t pageCount = m_nRows ? m_nRows : 8; //fill buffer with spaces ' '
   uint16_t bytes = static_cast<uint16_t>(pageCount) * 128; //128 bytes per page
   for(uint16_t i = 0; i < bytes; ++i) {
     SendData(0);
+#if ENABLE_LCD2OLED_DEBUG
     if ((i & 0x3F) == 0) Serial.println(F("lcd2oled: clear loop chunk"));
+#endif
   }
     if (m_hasBuffer) {
+#if ENABLE_LCD2OLED_DEBUG
       Serial.println(F("lcd2oled: clear memset"));
+#endif
       memset(m_pBuffer, OLED_CHAR_SPACE, m_nColumns * m_nRows);
     } else {
+#if ENABLE_LCD2OLED_DEBUG
       Serial.println(F("lcd2oled: clear memset skipped"));
+#endif
     }
+#if ENABLE_LCD2OLED_DEBUG
   Serial.println(F("lcd2oled: clear display"));
+#endif
   display();
+#if ENABLE_LCD2OLED_DEBUG
   Serial.println(F("lcd2oled: clear home"));
+#endif
   home();
+#if ENABLE_LCD2OLED_DEBUG
   Serial.println(F("lcd2oled: clear exit"));
+#endif
 }
 
 void lcd2oled::ShowTest()
@@ -94,19 +135,25 @@ void lcd2oled::SetAddress(uint8_t nAddress)
 
 void lcd2oled::begin(uint8_t nColumns, uint8_t nRows, uint8_t nCharSize, bool bChargePump)
 {
+#if ENABLE_LCD2OLED_DEBUG
   Serial.println(F("lcd2oled: begin enter"));
-  m_hasBuffer = false;
-  if(!m_pBuffer) {
-    Serial.println(F("lcd2oled: alloc buffer"));
-    uint8_t *allocated = new uint8_t[nColumns * nRows];
-    if (!allocated) {
-      Serial.println(F("lcd2oled: alloc failed"));
-    } else {
-      m_pBuffer = allocated;
-      m_hasBuffer = true;
+  Serial.print(F("lcd2oled: free_sram_before_alloc="));
+  Serial.println(lcd2oled_free_sram());
+#endif
+  const uint16_t required_bytes = static_cast<uint16_t>(nColumns) * nRows;
+  if (required_bytes > sizeof(s_oledTextBuffer)) {
+    m_hasBuffer = false;
+    if (!s_oledBufferWarningEmitted) {
+      Serial.println(F("lcd2oled: WARNING display larger than static buffer;"
+                       " live logging build disables OLED shadowing to keep SRAM available"));
+      s_oledBufferWarningEmitted = true;
     }
   } else {
     m_hasBuffer = true;
+    if (!s_oledBufferWarningEmitted) {
+      Serial.println(F("lcd2oled: using static text buffer to avoid heap frag with serial debug"));
+      s_oledBufferWarningEmitted = true;
+    }
   }
   m_nColumns = nColumns;
   m_nRows = nRows;
@@ -118,64 +165,106 @@ void lcd2oled::begin(uint8_t nColumns, uint8_t nRows, uint8_t nCharSize, bool bC
   if(pixelRows > 64)
     pixelRows = 64;
   //turn display off whilst we configure it
+#if ENABLE_LCD2OLED_DEBUG
   Serial.println(F("lcd2oled: noDisplay"));
+#endif
   noDisplay();
   //Configure pages (rows) 0 - 7)
+#if ENABLE_LCD2OLED_DEBUG
   Serial.println(F("lcd2oled: page addr begin"));
+#endif
   SendCommand(OLED_CMD_PAGE_ADDRESS, 0x00);
+#if ENABLE_LCD2OLED_DEBUG
   Serial.println(F("lcd2oled: page addr end"));
+#endif
   SendCommand(lastPage);
+#if ENABLE_LCD2OLED_DEBUG
   Serial.println(F("lcd2oled: column range low"));
+#endif
   SendCommand(OLED_CMD_COLUMN_RANGE, 0x00);
+#if ENABLE_LCD2OLED_DEBUG
   Serial.println(F("lcd2oled: column range high"));
+#endif
   SendCommand(0x7F);
   //Select horizontal mode (wrap at end of row)
+#if ENABLE_LCD2OLED_DEBUG
   Serial.println(F("lcd2oled: memory mode"));
+#endif
   SendCommand(OLED_CMD_MEMORY_ADDRESS_MODE, OLED_MODE_HORIZONTAL); //Reset sets to Page mode but we want horizontal
   //Set vertical offset to zero
+#if ENABLE_LCD2OLED_DEBUG
   Serial.println(F("lcd2oled: offset"));
+#endif
   SendCommand(OLED_CMD_OFFSET, 0);
   //Set horizontal offset
+#if ENABLE_LCD2OLED_DEBUG
   Serial.println(F("lcd2oled: column low"));
+#endif
   SendCommand(OLED_CMD_COLUMN_LOW | (OLED_LEFT_BORDER & 0x0F));
+#if ENABLE_LCD2OLED_DEBUG
   Serial.println(F("lcd2oled: column high"));
+#endif
   SendCommand(OLED_CMD_COLUMN_HIGH | ((OLED_LEFT_BORDER >> 4) & 0x0F));
   //OLED physical configuration
   uint8_t muxRatio = pixelRows ? static_cast<uint8_t>(pixelRows - 1) : 0x3F;
+#if ENABLE_LCD2OLED_DEBUG
   Serial.println(F("lcd2oled: mux ratio"));
+#endif
   SendCommand(OLED_CMD_MUX_RATIO, muxRatio);
+#if ENABLE_LCD2OLED_DEBUG
   Serial.println(F("lcd2oled: pin config"));
+#endif
   SendCommand(OLED_CMD_PIN_CONFIG, (pixelRows < 64) ? OLED_PIN_SEQ : OLED_PIN_ALT);
+#if ENABLE_LCD2OLED_DEBUG
   Serial.println(F("lcd2oled: rotate"));
+#endif
   Rotate(false); //Assume LCD is installed right way up - user must rotate in code if installed upside down
+#if ENABLE_LCD2OLED_DEBUG
   Serial.println(F("lcd2oled: clock divide"));
+#endif
   SendCommand(OLED_CMD_CLOCK_DIVIDE, 0xF0); //Fastest clock (default is 0x80) to improve scroll speed and accuracy
+#if ENABLE_LCD2OLED_DEBUG
   Serial.println(F("lcd2oled: precharge"));
+#endif
   SendCommand(OLED_CMD_PRECHARGE_PERIOD, 0xF1);
   //Turn on charge pump
   if(bChargePump) {
+#if ENABLE_LCD2OLED_DEBUG
     Serial.println(F("lcd2oled: charge pump"));
+#endif
     SendCommand(OLED_CMD_CHARGE_PUMP, 0x14);
   }
   //Set medium brightness
+#if ENABLE_LCD2OLED_DEBUG
   Serial.println(F("lcd2oled: contrast"));
+#endif
   SendCommand(OLED_CMD_CONTRAST, 0x7F);
   //Do not invert display
+#if ENABLE_LCD2OLED_DEBUG
   Serial.println(F("lcd2oled: normal"));
+#endif
   SendCommand(OLED_CMD_NORMAL);
   //Set Vcom deslect to 77% of Vcc
+#if ENABLE_LCD2OLED_DEBUG
   Serial.println(F("lcd2oled: vcom"));
+#endif
   SendCommand(OLED_CMD_VCOM_LEVEL, OLED_VCOM_77);
   //Disable scrolling
+#if ENABLE_LCD2OLED_DEBUG
   Serial.println(F("lcd2oled: scroll stop"));
+#endif
   SendCommand(OLED_CMD_SCROLL_STOP);
   //Clear display
+#if ENABLE_LCD2OLED_DEBUG
   Serial.println(F("lcd2oled: clear"));
+#endif
   clear();
   //Turn display on (not on by default after reset)
+#if ENABLE_LCD2OLED_DEBUG
   Serial.println(F("lcd2oled: display"));
-  display();
   Serial.println(F("lcd2oled: begin exit"));
+#endif
+  display();
 }
 
 void lcd2oled::display()
