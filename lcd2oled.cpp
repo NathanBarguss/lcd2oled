@@ -23,6 +23,7 @@
 static uint8_t s_oledTextBuffer[LCD2OLED_BUFFER_COLUMNS * LCD2OLED_BUFFER_ROWS] = {0};
 static bool s_oledBufferWarningEmitted = false;
 
+#if ENABLE_LCD2OLED_DEBUG
 static int16_t lcd2oled_free_sram() {
 	extern char __heap_start;
 	extern char *__brkval;
@@ -30,6 +31,7 @@ static int16_t lcd2oled_free_sram() {
 	char *heap_end = __brkval ? __brkval : &__heap_start;
 	return static_cast<int16_t>(&stack_top - heap_end);
 }
+#endif
 
 lcd2oled::lcd2oled(uint8_t ResetPin) :
 		m_lBlinkTime(0),
@@ -525,14 +527,17 @@ size_t lcd2oled::Write(uint8_t Char)
 
 void lcd2oled::Draw(uint8_t nChar, uint8_t nCursor)
 {
+  Wire.beginTransmission(m_nI2CAddress);
+  Wire.write(OLED_DATA_MODE);
   for(uint8_t nColumn = 0; nColumn < 5; ++nColumn)
   {
-    if(nChar < OLED_CHAR_SPACE)
-      SendData(m_pCustom[nChar][nColumn] | nCursor);
-    else
-      SendData(pgm_read_byte_near(&FONT_5x7[nChar - OLED_CHAR_SPACE][nColumn]) | nCursor);
+    uint8_t glyph = (nChar < OLED_CHAR_SPACE)
+        ? m_pCustom[nChar][nColumn]
+        : pgm_read_byte_near(&FONT_5x7[nChar - OLED_CHAR_SPACE][nColumn]);
+    Wire.write(glyph | nCursor);
   }
-  SendData(0); //Add inter-character space
+  Wire.write(0); //Add inter-character space
+  Wire.endTransmission();
 }
 
 void lcd2oled::Redraw(bool bBlank)
