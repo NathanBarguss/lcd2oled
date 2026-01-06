@@ -14,7 +14,8 @@ lcd2oled::lcd2oled(uint8_t ResetPin) :
         m_nRotation(OLED_ROTATE_0),
         m_bLeftToRight(true),
         m_bAutoscroll(false),
-        m_pBuffer(NULL)
+        m_pBuffer(NULL),
+        m_hasBuffer(false)
 {
   if(m_nResetPin)
   {
@@ -39,16 +40,29 @@ void lcd2oled::Reset()
   }
 }
 
-void lcd2oled::clear()
-{
+void lcd2oled::clear() {
+  Serial.println(F("lcd2oled: clear enter"));
   noDisplay(); //Turn display off to hide slow scan clear
-  uint8_t pageCount = m_nRows ? m_nRows : 8;
+
+  Serial.println(F("lcd2oled: clear senddata"));
+  
+  uint8_t pageCount = m_nRows ? m_nRows : 8; //fill buffer with spaces ' '
   uint16_t bytes = static_cast<uint16_t>(pageCount) * 128; //128 bytes per page
-  for(uint16_t i = 0; i < bytes; ++i)
+  for(uint16_t i = 0; i < bytes; ++i) {
     SendData(0);
-  memset(m_pBuffer, OLED_CHAR_SPACE, m_nColumns * m_nRows); //fill buffer with spaces ' '
+    if ((i & 0x3F) == 0) Serial.println(F("lcd2oled: clear loop chunk"));
+  }
+    if (m_hasBuffer) {
+      Serial.println(F("lcd2oled: clear memset"));
+      memset(m_pBuffer, OLED_CHAR_SPACE, m_nColumns * m_nRows);
+    } else {
+      Serial.println(F("lcd2oled: clear memset skipped"));
+    }
+  Serial.println(F("lcd2oled: clear display"));
   display();
+  Serial.println(F("lcd2oled: clear home"));
   home();
+  Serial.println(F("lcd2oled: clear exit"));
 }
 
 void lcd2oled::ShowTest()
@@ -80,8 +94,20 @@ void lcd2oled::SetAddress(uint8_t nAddress)
 
 void lcd2oled::begin(uint8_t nColumns, uint8_t nRows, uint8_t nCharSize, bool bChargePump)
 {
-  if(!m_pBuffer)
-    m_pBuffer = new uint8_t[nColumns * nRows];
+  Serial.println(F("lcd2oled: begin enter"));
+  m_hasBuffer = false;
+  if(!m_pBuffer) {
+    Serial.println(F("lcd2oled: alloc buffer"));
+    uint8_t *allocated = new uint8_t[nColumns * nRows];
+    if (!allocated) {
+      Serial.println(F("lcd2oled: alloc failed"));
+    } else {
+      m_pBuffer = allocated;
+      m_hasBuffer = true;
+    }
+  } else {
+    m_hasBuffer = true;
+  }
   m_nColumns = nColumns;
   m_nRows = nRows;
   uint8_t pageCount = m_nRows ? m_nRows : 8;
@@ -92,41 +118,64 @@ void lcd2oled::begin(uint8_t nColumns, uint8_t nRows, uint8_t nCharSize, bool bC
   if(pixelRows > 64)
     pixelRows = 64;
   //turn display off whilst we configure it
+  Serial.println(F("lcd2oled: noDisplay"));
   noDisplay();
   //Configure pages (rows) 0 - 7)
+  Serial.println(F("lcd2oled: page addr begin"));
   SendCommand(OLED_CMD_PAGE_ADDRESS, 0x00);
+  Serial.println(F("lcd2oled: page addr end"));
   SendCommand(lastPage);
+  Serial.println(F("lcd2oled: column range low"));
   SendCommand(OLED_CMD_COLUMN_RANGE, 0x00);
+  Serial.println(F("lcd2oled: column range high"));
   SendCommand(0x7F);
   //Select horizontal mode (wrap at end of row)
+  Serial.println(F("lcd2oled: memory mode"));
   SendCommand(OLED_CMD_MEMORY_ADDRESS_MODE, OLED_MODE_HORIZONTAL); //Reset sets to Page mode but we want horizontal
   //Set vertical offset to zero
+  Serial.println(F("lcd2oled: offset"));
   SendCommand(OLED_CMD_OFFSET, 0);
   //Set horizontal offset
+  Serial.println(F("lcd2oled: column low"));
   SendCommand(OLED_CMD_COLUMN_LOW | (OLED_LEFT_BORDER & 0x0F));
+  Serial.println(F("lcd2oled: column high"));
   SendCommand(OLED_CMD_COLUMN_HIGH | ((OLED_LEFT_BORDER >> 4) & 0x0F));
   //OLED physical configuration
   uint8_t muxRatio = pixelRows ? static_cast<uint8_t>(pixelRows - 1) : 0x3F;
+  Serial.println(F("lcd2oled: mux ratio"));
   SendCommand(OLED_CMD_MUX_RATIO, muxRatio);
+  Serial.println(F("lcd2oled: pin config"));
   SendCommand(OLED_CMD_PIN_CONFIG, (pixelRows < 64) ? OLED_PIN_SEQ : OLED_PIN_ALT);
+  Serial.println(F("lcd2oled: rotate"));
   Rotate(false); //Assume LCD is installed right way up - user must rotate in code if installed upside down
+  Serial.println(F("lcd2oled: clock divide"));
   SendCommand(OLED_CMD_CLOCK_DIVIDE, 0xF0); //Fastest clock (default is 0x80) to improve scroll speed and accuracy
+  Serial.println(F("lcd2oled: precharge"));
   SendCommand(OLED_CMD_PRECHARGE_PERIOD, 0xF1);
   //Turn on charge pump
-  if(bChargePump)
+  if(bChargePump) {
+    Serial.println(F("lcd2oled: charge pump"));
     SendCommand(OLED_CMD_CHARGE_PUMP, 0x14);
+  }
   //Set medium brightness
+  Serial.println(F("lcd2oled: contrast"));
   SendCommand(OLED_CMD_CONTRAST, 0x7F);
   //Do not invert display
+  Serial.println(F("lcd2oled: normal"));
   SendCommand(OLED_CMD_NORMAL);
   //Set Vcom deslect to 77% of Vcc
+  Serial.println(F("lcd2oled: vcom"));
   SendCommand(OLED_CMD_VCOM_LEVEL, OLED_VCOM_77);
   //Disable scrolling
+  Serial.println(F("lcd2oled: scroll stop"));
   SendCommand(OLED_CMD_SCROLL_STOP);
   //Clear display
+  Serial.println(F("lcd2oled: clear"));
   clear();
   //Turn display on (not on by default after reset)
+  Serial.println(F("lcd2oled: display"));
   display();
+  Serial.println(F("lcd2oled: begin exit"));
 }
 
 void lcd2oled::display()
@@ -366,7 +415,9 @@ size_t lcd2oled::Write(uint8_t Char)
   if((nChar < OLED_CHAR_SPACE && nChar >= OLED_CUSTOM_CHARS) || (nChar > 127))
     nChar = OLED_CHAR_SPACE; //Draw space if invalid character
   Draw(nChar);
-  m_pBuffer[m_nY * m_nColumns + m_nX] = nChar; //Update buffer (used to redraw with / without cursor undesrscore)
+  if (m_hasBuffer) {
+    m_pBuffer[m_nY * m_nColumns + m_nX] = nChar; //Update buffer (used to redraw with / without cursor undesrscore)
+  }
   if(m_bLeftToRight)
     ++m_nX;
   else
@@ -397,6 +448,9 @@ void lcd2oled::Draw(uint8_t nChar, uint8_t nCursor)
 
 void lcd2oled::Redraw(bool bBlank)
 {
+  if (!m_hasBuffer) {
+    return;
+  }
   if(m_nX >= m_nColumns)
     return;
   if(bBlank)

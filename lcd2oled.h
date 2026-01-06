@@ -226,4 +226,5 @@ class lcd2oled : public Print
     bool m_bBlinkOn;		// True if flashing cursor is asserted (all black)
     uint8_t m_pCustom[OLED_CUSTOM_CHARS][5]; // Custom character glyphs
     uint8_t * m_pBuffer; 	// Pointer to buffer holding current display
+    bool m_hasBuffer;
 };
