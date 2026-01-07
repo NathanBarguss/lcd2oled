@@ -6,6 +6,11 @@
 #include "lcd2oled.h"
 #include "charsets.h"
 
+#ifndef LCD2OLED_ENABLE_TEXT_BUFFER
+#define LCD2OLED_ENABLE_TEXT_BUFFER 1
+#endif
+
+#if LCD2OLED_ENABLE_TEXT_BUFFER
 // The instrumentation-heavy debug build leaves us ~200 bytes of free SRAM,
 // which isn't enough headroom for a late heap allocation plus allocator
 // bookkeeping. To keep the OLED buffer reliable even when verbose logging
@@ -22,6 +27,7 @@
 #endif
 static uint8_t s_oledTextBuffer[LCD2OLED_BUFFER_COLUMNS * LCD2OLED_BUFFER_ROWS] = {0};
 static bool s_oledBufferWarningEmitted = false;
+#endif
 
 #if ENABLE_LCD2OLED_DEBUG
 static int16_t lcd2oled_free_sram() {
@@ -41,9 +47,13 @@ lcd2oled::lcd2oled(uint8_t ResetPin) :
         m_nRotation(OLED_ROTATE_0),
         m_bLeftToRight(true),
         m_bAutoscroll(false),
-        m_pBuffer(s_oledTextBuffer),
-        m_hasBuffer(true)
+        m_pBuffer(nullptr),
+        m_hasBuffer(false)
 {
+#if LCD2OLED_ENABLE_TEXT_BUFFER
+  m_pBuffer = s_oledTextBuffer;
+  m_hasBuffer = true;
+#endif
   if(m_nResetPin)
   {
     pinMode(m_nResetPin, OUTPUT);
@@ -142,6 +152,7 @@ void lcd2oled::begin(uint8_t nColumns, uint8_t nRows, uint8_t nCharSize, bool bC
   Serial.print(F("lcd2oled: free_sram_before_alloc="));
   Serial.println(lcd2oled_free_sram());
 #endif
+#if LCD2OLED_ENABLE_TEXT_BUFFER
   const uint16_t required_bytes = static_cast<uint16_t>(nColumns) * nRows;
   if (required_bytes > sizeof(s_oledTextBuffer)) {
     m_hasBuffer = false;
@@ -157,6 +168,12 @@ void lcd2oled::begin(uint8_t nColumns, uint8_t nRows, uint8_t nCharSize, bool bC
       s_oledBufferWarningEmitted = true;
     }
   }
+#else
+#if ENABLE_LCD2OLED_DEBUG
+  Serial.println(F("lcd2oled: text buffer disabled at build time"));
+#endif
+  m_hasBuffer = false;
+#endif
   m_nColumns = nColumns;
   m_nRows = nRows;
   uint8_t pageCount = m_nRows ? m_nRows : 8;
