@@ -1,3 +1,12 @@
+# Fork / Maintenance Notes (ArduLCDpp)
+This repository is currently used as a *maintenance fork* for the ArduLCDpp project, primarily to support reliable operation on very SRAM-constrained AVR boards (e.g., ATmega168) and to reduce I²C overhead during high-rate display updates.
+
+Changes in this fork (relative to upstream `NathanBarguss/lcd2oled`):
+- **Batched glyph writes**: character rendering is sent as a single I²C transaction per glyph to reduce per-character latency and I²C overhead.
+- **Optional text buffer**: adds `LCD2OLED_ENABLE_TEXT_BUFFER` (default `1`) to compile out the internal shadow text buffer when SRAM is too tight. When disabled, buffer-dependent redraw/cursor behaviors become no-ops, but direct writes still work.
+
+These changes are intended to be safe and opt-in (upstream defaults remain unchanged). Once reviewed, the goal is to contribute them upstream via PRs.
+
 # lcd2oled
 ![Logo](docs/lcd2oled.png)
 An Arduino library providing communication with SDD1306 OLED display over I2C interface using same API as LiquidCrystal library.
@@ -78,4 +87,3 @@ lcd2oled provides an ASCII character set (but with character 127 (BELL) replaced
 ```
 #define OLED_USE_ASCII
 ```
-
