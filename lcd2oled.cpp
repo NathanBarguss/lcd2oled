@@ -403,7 +403,9 @@ void lcd2oled::createChar(uint8_t nIndex, uint8_t* pBitmap)
   for(uint8_t i = 0; i < 5; ++i)
   {
     m_pCustom[nIndex][i] = 0;
-    for(uint8_t j = 0; j < 7; ++j)
+    // HD44780 custom characters are 5x8. Preserve all 8 rows so CGRAM parity
+    // matches the LCD when host apps rely on the bottom row.
+    for(uint8_t j = 0; j < 8; ++j)
     {
       //!@todo Can this horrible bit of code to rotate custom glyph from horizontal to vertical encoding be optimised?
       m_pCustom[nIndex][i] |= (((*(pBitmap + j) & (1 << (4 - i))) >> (4 - i)) << j);
