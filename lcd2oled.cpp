@@ -522,7 +522,16 @@ size_t lcd2oled::Write(uint8_t Char)
   if(m_nX >= m_nColumns)
     return 0; //Don't attempt to draw beyond end of display
   uint8_t nChar = Char;
-  if((nChar < OLED_CHAR_SPACE && nChar >= OLED_CUSTOM_CHARS) || (nChar > 127))
+
+  // HD44780 "full block" is typically 0xFF. Map it to the OLED library's
+  // built-in "all on" glyph (0x80) so dashboards and big-digit renderers
+  // that use 0xFF for solid fills stay compatible.
+  if (nChar == 0xFF) {
+    nChar = OLED_CHAR_ALLON;
+  }
+
+  if ((nChar < OLED_CHAR_SPACE && nChar >= OLED_CUSTOM_CHARS) ||
+      (nChar > 127 && nChar != OLED_CHAR_ALLON))
     nChar = OLED_CHAR_SPACE; //Draw space if invalid character
   Draw(nChar);
   if (m_hasBuffer) {
